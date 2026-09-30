@@ -20,7 +20,7 @@
             width: 20px; height: 20px;
         }
         #crosshair::before, #crosshair::after {
-            content: ''; position: absolute; background: rgba(255,255,255,0.8);
+            content: ''; position: absolute; background: rgba(255,255,255,0.85);
         }
         #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
         #crosshair::after { width: 100%; height: 2px; top: 50%; transform: translateY(-50%); }
@@ -60,16 +60,29 @@
             text-shadow: 2px 2px 4px #000;
         }
 
-        #teamScore {
-            position: absolute; top: 20px; left: 190px;
-            font-size: 20px; font-weight: bold;
-            text-shadow: 2px 2px 4px #000;
+        /* 상단 중앙 팀 점수 보드 (1킬 = 1점) */
+        #teamScoreboard {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+            display: flex; align-items: center; gap: 20px;
+            background: rgba(0,0,0,0.55); border-radius: 10px;
+            padding: 8px 25px; border: 1px solid rgba(255,255,255,0.15);
         }
+        .score-box { display: flex; flex-direction: column; align-items: center; min-width: 55px; }
+        .score-num { font-size: 32px; font-weight: bold; line-height: 1; text-shadow: 0 0 8px rgba(0,0,0,0.8); }
+        .score-num.ally { color: #3498db; }
+        .score-num.enemy { color: #e74c3c; }
+        .score-label { font-size: 11px; color: #bbb; margin-top: 4px; letter-spacing: 1px; }
+        .vs-text { color: #f39c12; font-size: 16px; font-weight: bold; }
 
+        /* 우측 상단 명찰 킬로그 */
         #killFeed {
-            position: absolute; top: 60px; right: 30px;
+            position: absolute; top: 70px; right: 30px;
             font-size: 14px; text-align: right;
             text-shadow: 1px 1px 2px #000;
+        }
+        #killFeed div {
+            background: rgba(0,0,0,0.55); padding: 4px 12px;
+            border-radius: 4px; margin-bottom: 5px; display: inline-block;
         }
 
         #damageOverlay {
@@ -155,7 +168,11 @@
         <div id="ammoText"><span id="ammoCurrent">30</span> / <span id="ammoMax">30</span></div>
         <div id="weaponName">M4A1 돌격소총</div>
         <div id="scoreText">점수: <span id="score">0</span></div>
-        <div id="teamScore">아군 0 : 0 적군</div>
+        <div id="teamScoreboard">
+            <div class="score-box"><div class="score-num ally" id="allyScore">0</div><div class="score-label">아군</div></div>
+            <div class="vs-text">VS</div>
+            <div class="score-box"><div class="score-num enemy" id="enemyScore">0</div><div class="score-label">적군</div></div>
+        </div>
         <div id="killFeed"></div>
         <div id="reloadBar"><div id="reloadFill"></div></div>
         <div id="weaponHint">1: 돌격소총 | 2: 권총</div>
@@ -168,7 +185,7 @@
     <div id="startScreen">
         <h1>5:5 TEAM BATTLE</h1>
         <p>WASD: 이동 | 마우스: 시점 | 클릭: 사격 | R: 재장전 | SHIFT: 달리기 | 1/2: 무기 변경</p>
-        <p>아군(파랑) vs 적군(빨강) | 머리 명중 시 2배 데미지 | 부활 시 3초 무적</p>
+        <p>아군(파랑) vs 적군(빨강) | AI는 엄폐물을 활용해 전투 | 부활 시 3초 무적</p>
         <button class="btn" id="startBtn">게임 시작</button>
     </div>
 
@@ -208,29 +225,21 @@
         const WEAPONS = {
             rifle: {
                 name: 'M4A1 돌격소총',
-                damageBody: 25,
-                damageHead: 50,
-                fireRate: 100,
-                maxAmmo: 30,
-                reloadTime: 2000,
-                auto: true,
-                spread: 0.02,
-                bulletSpeed: 80,
-                recoil: 0.03
+                damageBody: 25, damageHead: 50,
+                fireRate: 100, maxAmmo: 30, reloadTime: 2000,
+                auto: true, spread: 0.02, bulletSpeed: 80, recoil: 0.03
             },
             pistol: {
                 name: 'M1911 권총',
-                damageBody: 15,
-                damageHead: 30,
-                fireRate: 300,
-                maxAmmo: 12,
-                reloadTime: 1500,
-                auto: false,
-                spread: 0.01,
-                bulletSpeed: 60,
-                recoil: 0.06
+                damageBody: 15, damageHead: 30,
+                fireRate: 300, maxAmmo: 12, reloadTime: 1500,
+                auto: false, spread: 0.01, bulletSpeed: 60, recoil: 0.06
             }
         };
+
+        // ============ SOLDIER NAMES ============
+        const ALLY_NAMES = ['YOU', 'Alpha', 'Bravo', 'Charlie', 'Delta'];
+        const ENEMY_NAMES = ['Viper', 'Wolf', 'Hawk', 'Cobra', 'Ghost'];
 
         // ============ GAME STATE ============
         const state = {
@@ -246,13 +255,15 @@
             lastShot: 0,
             isRespawning: false,
             respawnTime: 0,
-            shieldTime: 0
+            shieldTime: 0,
+            playerSoldier: null
         };
 
         // ============ THREE.JS SETUP ============
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x8899aa);
-        scene.fog = new THREE.Fog(0x8899aa, 30, 120);
+        // 밝은 현실적 하늘색 배경
+        scene.background = new THREE.Color(0xb8c8d8);
+        scene.fog = new THREE.Fog(0xb8c8d8, 40, 140);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 300);
         camera.position.set(0, 1.7, 0);
@@ -263,15 +274,15 @@
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFShadowMap;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.0;
+        renderer.toneMappingExposure = 1.15;
         renderer.domElement.id = 'gameCanvas';
         document.body.appendChild(renderer.domElement);
 
-        // ============ LIGHTING ============
-        const ambientLight = new THREE.AmbientLight(0x556677, 0.5);
+        // ============ LIGHTING (밝게) ============
+        const ambientLight = new THREE.AmbientLight(0xaab4c0, 0.9);
         scene.add(ambientLight);
 
-        const sunLight = new THREE.DirectionalLight(0xffeedd, 1.2);
+        const sunLight = new THREE.DirectionalLight(0xfff4e0, 1.8);
         sunLight.position.set(50, 80, 30);
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 2048;
@@ -285,22 +296,22 @@
         sunLight.shadow.bias = -0.001;
         scene.add(sunLight);
 
-        const hemiLight = new THREE.HemisphereLight(0x8899aa, 0x333322, 0.3);
+        const hemiLight = new THREE.HemisphereLight(0xb8c8d8, 0x6a6055, 0.7);
         scene.add(hemiLight);
 
-        // ============ RUINED CITY ENVIRONMENT ============
+        // ============ RUINED CITY ENVIRONMENT (밝은 톤) ============
         const ARENA_SIZE = 60;
 
-        // Ground - cracked asphalt
+        // Ground - 밝은 톤 아스팔트
         const groundGeo = new THREE.PlaneGeometry(ARENA_SIZE * 2, ARENA_SIZE * 2, 32, 32);
-        const groundMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.95, metalness: 0.05 });
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x6a6a62, roughness: 0.95, metalness: 0.05 });
         const ground = new THREE.Mesh(groundGeo, groundMat);
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
         scene.add(ground);
 
-        // Road markings (faded)
-        const roadMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 });
+        // 도로 표시
+        const roadMat = new THREE.MeshStandardMaterial({ color: 0x4a4a44, roughness: 0.9 });
         for (let i = -2; i <= 2; i++) {
             const road = new THREE.Mesh(new THREE.PlaneGeometry(ARENA_SIZE * 2, 8), roadMat);
             road.rotation.x = -Math.PI / 2;
@@ -309,10 +320,11 @@
             scene.add(road);
         }
 
-        // Ruined buildings
-        const buildingMat = new THREE.MeshStandardMaterial({ color: 0x5a5a5a, roughness: 0.9, metalness: 0.1 });
-        const darkBuildingMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.95, metalness: 0.05 });
+        // 폐건물
+        const buildingMat = new THREE.MeshStandardMaterial({ color: 0xa89c8e, roughness: 0.9, metalness: 0.1 });
+        const darkBuildingMat = new THREE.MeshStandardMaterial({ color: 0x867e74, roughness: 0.95, metalness: 0.05 });
         const buildings = [];
+        const buildingMeshes = [];
         const buildingPositions = [
             [15, 15], [-15, 15], [15, -15], [-15, -15],
             [25, 0], [-25, 0], [0, 25], [0, -25],
@@ -329,9 +341,9 @@
             mesh.castShadow = true;
             mesh.receiveShadow = true;
             scene.add(mesh);
-            buildings.push({ mesh, x, z, w: w / 2 + 0.5, d: d / 2 + 0.5 });
+            buildings.push({ mesh, x, z, w: w / 2 + 0.5, d: d / 2 + 0.5, h: h });
+            buildingMeshes.push(mesh);
 
-            // Broken top (rubble)
             if (Math.random() > 0.3) {
                 const rubbleGeo = new THREE.BoxGeometry(w * 0.6, 1 + Math.random() * 2, d * 0.6);
                 const rubble = new THREE.Mesh(rubbleGeo, darkBuildingMat);
@@ -342,8 +354,8 @@
             }
         });
 
-        // Burned vehicles
-        const vehicleMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.8, metalness: 0.3 });
+        // 불탄 차량
+        const vehicleMat = new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 0.8, metalness: 0.3 });
         const vehiclePositions = [
             [8, 3, 0.5], [-12, -8, 1.2], [20, 12, 2.1], [-5, 20, 0.8],
         ];
@@ -357,9 +369,8 @@
             cabin.position.set(0, 1.2, -0.3);
             cabin.castShadow = true;
             vehicleGroup.add(cabin);
-            // Wheels
             const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.3, 8);
-            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 });
             [[-0.9, 1.3], [0.9, 1.3], [-0.9, -1.3], [0.9, -1.3]].forEach(([wx, wz]) => {
                 const wheel = new THREE.Mesh(wheelGeo, wheelMat);
                 wheel.rotation.z = Math.PI / 2;
@@ -371,8 +382,8 @@
             scene.add(vehicleGroup);
         });
 
-        // Rubble piles
-        const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.95 });
+        // 잔해 더미
+        const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x8a8078, roughness: 0.95 });
         for (let i = 0; i < 12; i++) {
             const size = 1 + Math.random() * 2;
             const geo = new THREE.DodecahedronGeometry(size, 0);
@@ -384,8 +395,38 @@
             scene.add(mesh);
         }
 
-        // Broken street lights
-        const poleMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5, metalness: 0.7 });
+        // ============ 엄폐물 (AI cover 행동용) ============
+        const crateMat = new THREE.MeshStandardMaterial({ color: 0x8a7a5a, roughness: 0.85 });
+        const barrierMat = new THREE.MeshStandardMaterial({ color: 0xa8a298, roughness: 0.95 });
+        const coverObjects = []; // { x, z, r, h } - r = 반경(원형), h = 높이
+        const coverPositions = [
+            [-8, -6, 0], [8, 6, 0], [-12, 8, 1], [12, -8, 1], [0, -12, 0], [0, 12, 0],
+            [-18, 2, 1], [18, -2, 1], [6, -18, 0], [-6, 18, 0], [10, 14, 1], [-10, -14, 1],
+            [-3, 3, 0], [3, -3, 0],
+        ];
+        coverPositions.forEach(([x, z, type]) => {
+            let mesh, r, h;
+            if (type === 0) {
+                // 나무 상자
+                h = 1.1;
+                mesh = new THREE.Mesh(new THREE.BoxGeometry(1.4, h, 1.4), crateMat);
+                r = 0.95;
+            } else {
+                // 콘크리트 방벽
+                h = 1.3;
+                mesh = new THREE.Mesh(new THREE.BoxGeometry(2.6, h, 0.5), barrierMat);
+                r = 1.3;
+            }
+            mesh.position.set(x, h / 2, z);
+            mesh.rotation.y = Math.random() * Math.PI;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            coverObjects.push({ x, z, r, h, mesh });
+        });
+
+        // 부서진 가로등
+        const poleMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.5, metalness: 0.7 });
         for (let i = 0; i < 8; i++) {
             const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 5, 6), poleMat);
             const angle = (i / 8) * Math.PI * 2;
@@ -395,8 +436,8 @@
             scene.add(pole);
         }
 
-        // Smoke columns (dark particles in distance)
-        const smokeMat = new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.4 });
+        // 먼 연기
+        const smokeMat = new THREE.MeshBasicMaterial({ color: 0x7a766f, transparent: true, opacity: 0.28 });
         for (let i = 0; i < 5; i++) {
             const smokeGroup = new THREE.Group();
             for (let j = 0; j < 5; j++) {
@@ -413,12 +454,8 @@
         const player = {
             velocity: new THREE.Vector3(),
             direction: new THREE.Vector3(),
-            speed: 8,
-            sprintSpeed: 14,
-            jumpForce: 8,
-            canJump: true,
-            height: 1.7,
-            radius: 0.4
+            speed: 8, sprintSpeed: 14, jumpForce: 8,
+            canJump: true, height: 1.7, radius: 0.4
         };
 
         // ============ WEAPON MODELS ============
@@ -426,7 +463,7 @@
         camera.add(weaponGroup);
         scene.add(camera);
 
-        // M4A1 Rifle
+        // M4A1 소총
         const rifleGroup = new THREE.Group();
         {
             const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.25, metalness: 0.85 });
@@ -484,7 +521,7 @@
         rifleGroup.position.set(0.25, -0.2, -0.5);
         weaponGroup.add(rifleGroup);
 
-        // M1911 Pistol
+        // M1911 권총
         const pistolGroup = new THREE.Group();
         {
             const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.2, metalness: 0.9 });
@@ -524,12 +561,32 @@
         muzzleFlash.position.set(0.25, -0.15, -0.8);
         camera.add(muzzleFlash);
 
+        // ============ NAME TAG (이름표) ============
+        function createNameTag(name, isAlly) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.font = 'bold 34px Segoe UI, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.lineWidth = 7;
+            ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+            ctx.strokeText(name, 128, 34);
+            ctx.fillStyle = isAlly ? '#5fc9ff' : '#ff6b5e';
+            ctx.fillText(name, 128, 34);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.anisotropy = 4;
+            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+            sprite.scale.set(1.4, 0.35, 1);
+            sprite.position.y = 2.15;
+            return sprite;
+        }
+
         // ============ SOLDIER CREATION ============
-        function createSoldier(x, z, team) {
+        function createSoldier(x, z, team, name) {
             const group = new THREE.Group();
             const isAlly = team === 'ally';
 
-            // Team colors
             const clothColor = isAlly ? 0x2a5a8a : 0x8a2a2a;
             const pantsColor = isAlly ? 0x1a3a5a : 0x5a1a1a;
             const helmetColor = isAlly ? 0x1a4a7a : 0x7a1a1a;
@@ -538,48 +595,40 @@
             const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.8 });
             const helmetMat = new THREE.MeshStandardMaterial({ color: helmetColor, roughness: 0.6, metalness: 0.3 });
             const bootMat = new THREE.MeshStandardMaterial({ color: 0x1a1a0a, roughness: 0.6 });
-
-            // Team indicator (glowing stripe)
             const stripeColor = isAlly ? 0x00aaff : 0xff3333;
             const stripeMat = new THREE.MeshStandardMaterial({ color: stripeColor, emissive: stripeColor, emissiveIntensity: 0.5 });
 
-            // Torso
             const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.3), clothMat);
             torso.position.y = 1.1;
             torso.castShadow = true;
             group.add(torso);
 
-            // Team stripe on chest
             const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.32), stripeMat);
             stripe.position.y = 1.2;
             group.add(stripe);
 
-            // Head
             const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), skinMat);
             head.position.y = 1.65;
             head.castShadow = true;
             group.add(head);
 
-            // Helmet
             const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2), helmetMat);
             helmet.position.y = 1.68;
             helmet.castShadow = true;
             group.add(helmet);
 
-            // Arms
+            // 팔
             const leftShoulder = new THREE.Group();
             leftShoulder.position.set(-0.32, 1.35, 0);
             group.add(leftShoulder);
             const leftUpperArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), clothMat);
             leftUpperArm.position.y = -0.17;
-            leftUpperArm.castShadow = true;
             leftShoulder.add(leftUpperArm);
             const leftElbow = new THREE.Group();
             leftElbow.position.y = -0.35;
             leftShoulder.add(leftElbow);
             const leftForearm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), skinMat);
             leftForearm.position.y = -0.15;
-            leftForearm.castShadow = true;
             leftElbow.add(leftForearm);
             const leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.08), skinMat);
             leftHand.position.y = -0.32;
@@ -590,33 +639,29 @@
             group.add(rightShoulder);
             const rightUpperArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), clothMat);
             rightUpperArm.position.y = -0.17;
-            rightUpperArm.castShadow = true;
             rightShoulder.add(rightUpperArm);
             const rightElbow = new THREE.Group();
             rightElbow.position.y = -0.35;
             rightShoulder.add(rightElbow);
             const rightForearm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.1), skinMat);
             rightForearm.position.y = -0.15;
-            rightForearm.castShadow = true;
             rightElbow.add(rightForearm);
             const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.08), skinMat);
             rightHand.position.y = -0.32;
             rightElbow.add(rightHand);
 
-            // Legs
+            // 다리
             const leftHip = new THREE.Group();
             leftHip.position.set(-0.15, 0.8, 0);
             group.add(leftHip);
             const leftThigh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), pantsMat);
             leftThigh.position.y = -0.2;
-            leftThigh.castShadow = true;
             leftHip.add(leftThigh);
             const leftKnee = new THREE.Group();
             leftKnee.position.y = -0.4;
             leftHip.add(leftKnee);
             const leftShin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), pantsMat);
             leftShin.position.y = -0.17;
-            leftShin.castShadow = true;
             leftKnee.add(leftShin);
             const leftFoot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.2), bootMat);
             leftFoot.position.set(0, -0.38, -0.04);
@@ -627,64 +672,71 @@
             group.add(rightHip);
             const rightThigh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), pantsMat);
             rightThigh.position.y = -0.2;
-            rightThigh.castShadow = true;
             rightHip.add(rightThigh);
             const rightKnee = new THREE.Group();
             rightKnee.position.y = -0.4;
             rightHip.add(rightKnee);
             const rightShin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), pantsMat);
             rightShin.position.y = -0.17;
-            rightShin.castShadow = true;
             rightKnee.add(rightShin);
             const rightFoot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.2), bootMat);
             rightFoot.position.set(0, -0.38, -0.04);
             rightKnee.add(rightFoot);
 
-            // Shield effect (invisible by default)
+            // 무적 보호막
             const shieldGeo = new THREE.SphereGeometry(1.2, 16, 16);
             const shieldMat = new THREE.MeshBasicMaterial({
                 color: isAlly ? 0x00aaff : 0xff3333,
-                transparent: true,
-                opacity: 0,
-                side: THREE.DoubleSide
+                transparent: true, opacity: 0, side: THREE.DoubleSide
             });
             const shield = new THREE.Mesh(shieldGeo, shieldMat);
             shield.position.y = 1;
             group.add(shield);
 
+            // 이름표
+            const nametag = createNameTag(name, isAlly);
+            group.add(nametag);
+
             group.position.set(x, 0, z);
             scene.add(group);
 
             return {
-                mesh: group, shield,
+                mesh: group, shield, nametag,
                 joints: { leftShoulder, rightShoulder, leftElbow, rightElbow, leftHip, rightHip, leftKnee, rightKnee },
-                team,
+                name, team,
                 health: 100, maxHealth: 100,
-                speed: 3 + Math.random(),
-                damage: 10,
-                lastAttack: 0, attackRate: 800 + Math.random() * 400,
-                points: 100,
+                speed: 3 + Math.random() * 1.2,
+                role: Math.random() < 0.5 ? 'assault' : 'defender',
+                // AI 상태
+                aiState: 'combat',
+                coverPoint: null,
+                peeking: false,
+                peekTimer: 0, peekEnd: 0,
+                crouchAmount: 0, crouchTarget: 0,
+                hurtUntil: 0,
+                strafeDir: Math.random() < 0.5 ? -1 : 1,
+                strafeTimer: 0,
                 walkCycle: Math.random() * Math.PI * 2,
                 isWalking: false,
                 isDying: false, deathTime: 0,
                 shieldTime: 0,
-                target: null,
-                lastTargetSearch: 0,
+                hasLos: false, lastLosCheck: 0,
+                target: null, lastTargetSearch: 0,
                 respawnX: x, respawnZ: z,
                 isPlayer: false
             };
         }
 
         // ============ BULLET ============
-        function createBullet(origin, direction, owner) {
-            const mesh = new THREE.Mesh(
-                new THREE.SphereGeometry(0.03, 4, 4),
-                new THREE.MeshBasicMaterial({ color: 0xffcc00 })
-            );
+        const bulletGeo = new THREE.SphereGeometry(0.03, 4, 4);
+        const playerBulletMat = new THREE.MeshBasicMaterial({ color: 0xffe066 });
+        const aiBulletMat = new THREE.MeshBasicMaterial({ color: 0xff8a4d });
+
+        function createBullet(origin, direction, dmgBody, dmgHead, owner) {
+            const mesh = new THREE.Mesh(bulletGeo, owner === 'player' ? playerBulletMat : aiBulletMat);
             mesh.position.copy(origin);
             scene.add(mesh);
-            const weapon = WEAPONS[state.currentWeapon];
-            return { mesh, velocity: direction.clone().multiplyScalar(weapon.bulletSpeed), gravity: -15, life: 3, owner };
+            return { mesh, velocity: direction.clone().multiplyScalar(WEAPONS[state.currentWeapon].bulletSpeed), gravity: -15, life: 3, owner, dmgBody, dmgHead };
         }
 
         // ============ SHELL CASING ============
@@ -791,43 +843,42 @@
             const bulletOrigin = new THREE.Vector3();
             camera.getWorldPosition(bulletOrigin);
             bulletOrigin.add(dir.clone().multiplyScalar(0.5));
-            state.bullets.push(createBullet(bulletOrigin, dir, 'player'));
+            state.bullets.push(createBullet(bulletOrigin, dir, weapon.damageBody, weapon.damageHead, 'player'));
             createShellCasing();
         }
 
-        // ============ AI SHOOTING ============
+        // ============ AI SHOOTING (burst + LOS) ============
+        const AI_DMG_BODY = 10, AI_DMG_HEAD = 20;
         function aiShoot(soldier, target) {
             const now = Date.now();
-            if (now - soldier.lastAttack < soldier.attackRate) return;
-            soldier.lastAttack = now;
+            if (now < soldier.nextShotTime) return;
+            if (soldier.burstLeft <= 0) {
+                soldier.burstLeft = 2 + Math.floor(Math.random() * 3);
+                soldier.nextShotTime = now + 1000 + Math.random() * 1500;
+                return;
+            }
+            soldier.burstLeft--;
+            soldier.nextShotTime = now + 130 + Math.random() * 80;
 
-            const dir = new THREE.Vector3().subVectors(target.mesh.position, soldier.mesh.position);
-            dir.y += 1; // Aim at chest
+            const originY = soldier.crouchAmount > 0.5 ? 1.0 : 1.4;
+            const origin = new THREE.Vector3(soldier.mesh.position.x, soldier.mesh.position.y + originY, soldier.mesh.position.z);
+            const aimY = target.isPlayer ? 1.4 : 1.2;
+            const dir = new THREE.Vector3(target.mesh.position.x - origin.x, target.mesh.position.y + aimY - origin.y, target.mesh.position.z - origin.z);
             dir.normalize();
-
-            // Add some inaccuracy
-            dir.x += (Math.random() - 0.5) * 0.1;
+            dir.x += (Math.random() - 0.5) * 0.09;
             dir.y += (Math.random() - 0.5) * 0.05;
-            dir.z += (Math.random() - 0.5) * 0.1;
+            dir.z += (Math.random() - 0.5) * 0.09;
             dir.normalize();
+            origin.add(dir.clone().multiplyScalar(0.5));
 
-            const bulletOrigin = soldier.mesh.position.clone();
-            bulletOrigin.y += 1.4;
-            bulletOrigin.add(dir.clone().multiplyScalar(0.5));
-
-            const mesh = new THREE.Mesh(
-                new THREE.SphereGeometry(0.03, 4, 4),
-                new THREE.MeshBasicMaterial({ color: 0xffaa00 })
-            );
-            mesh.position.copy(bulletOrigin);
+            const mesh = new THREE.Mesh(bulletGeo, aiBulletMat);
+            mesh.position.copy(origin);
             scene.add(mesh);
-
             state.bullets.push({
                 mesh,
-                velocity: dir.clone().multiplyScalar(50),
-                gravity: -15,
-                life: 2,
-                owner: soldier
+                velocity: dir.multiplyScalar(55),
+                gravity: -12, life: 2.5,
+                owner: soldier, dmgBody: AI_DMG_BODY, dmgHead: AI_DMG_HEAD
             });
         }
 
@@ -851,14 +902,48 @@
             }, 50);
         }
 
+        // ============ LINE OF SIGHT ============
+        const losRay = new THREE.Raycaster();
+        function hasLineOfSight(fromPos, toPos) {
+            const dir = new THREE.Vector3().subVectors(toPos, fromPos);
+            const dist = dir.length();
+            if (dist < 0.5) return true;
+            dir.normalize();
+            losRay.set(fromPos, dir);
+            losRay.far = dist - 0.3;
+            const hits = losRay.intersectObjects(buildingMeshes, false);
+            return hits.length === 0;
+        }
+
+        // ============ FIND COVER POINT ============
+        function findNearestCoverPoint(soldier, enemyPos) {
+            let best = null, bestScore = Infinity;
+            for (const c of coverObjects) {
+                const dx = soldier.mesh.position.x - c.x;
+                const dz = soldier.mesh.position.z - c.z;
+                const dToCover = Math.sqrt(dx * dx + dz * dz);
+                if (dToCover > 22) continue;
+                // 엄폐물 뒤쪽 (적 반대편)에 서는 지점
+                let ex = enemyPos.x - c.x, ez = enemyPos.z - c.z;
+                const el = Math.sqrt(ex * ex + ez * ez) || 1;
+                ex /= el; ez /= el;
+                const stand = c.r + 0.7;
+                const px = c.x - ex * stand;
+                const pz = c.z - ez * stand;
+                const dToStand = Math.hypot(soldier.mesh.position.x - px, soldier.mesh.position.z - pz);
+                const score = dToStand + dToCover * 0.2;
+                if (score < bestScore) { bestScore = score; best = { x: px, z: pz }; }
+            }
+            return best;
+        }
+
         // ============ DAMAGE ============
         function damageSoldier(soldier, damage, isHeadshot, attacker) {
-            if (soldier.shieldTime > 0) return; // 무적 상태
+            if (soldier.shieldTime > 0) return;
             if (soldier.isDying) return;
-
             soldier.health -= damage;
+            soldier.hurtUntil = Date.now() + 3500; // 피격 후 3.5초간 엄폐 행동 트리거
 
-            // Hit effect
             const hitPos = soldier.mesh.position.clone();
             hitPos.y += isHeadshot ? 1.65 : 1.1;
             createParticles(hitPos, 0xe74c3c, 5);
@@ -868,60 +953,70 @@
                 updateHealthUI();
             }
 
-            if (soldier.health <= 0) {
-                killSoldier(soldier, attacker);
-            }
+            if (soldier.health <= 0) killSoldier(soldier, attacker);
         }
 
+        // ============ KILL ============
         function killSoldier(soldier, attacker) {
+            if (soldier.isDying) return;
             soldier.isDying = true;
             soldier.deathTime = 0;
-
+            soldier.crouchAmount = 0;
+            soldier.coverPoint = null;
+            soldier.peeking = false;
             createParticles(soldier.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)), 0xe74c3c, 20);
 
-            // Team score
-            if (attacker) {
-                if (attacker.team === 'ally' || attacker.isPlayer) {
-                    state.teamScore.ally++;
-                    if (attacker.isPlayer) {
-                        state.score += 100;
-                        state.kills++;
-                        addKillFeed(`적군 처치! +100점`, '#2ecc71');
-                    }
-                } else {
-                    state.teamScore.enemy++;
-                }
+            const killerName = attacker === 'player' ? 'YOU' : (attacker && attacker.name) || '???';
+            const killerTeam = attacker === 'player' ? 'ally' : (attacker && attacker.team);
+
+            if (killerTeam === 'ally') {
+                state.teamScore.ally++;
+                if (attacker === 'player') { state.score += 100; state.kills++; }
+            } else if (killerTeam === 'enemy') {
+                state.teamScore.enemy++;
+            }
+
+            if (killerTeam) {
+                const kc = killerTeam === 'ally' ? '#5fc9ff' : '#ff6b5e';
+                const vc = soldier.team === 'ally' ? '#5fc9ff' : '#ff6b5e';
+                addKillFeed(`<span style="color:${kc};font-weight:bold">${killerName}</span> <span style="color:#f39c12">➤</span> <span style="color:${vc};font-weight:bold">${soldier.name}</span>`);
             }
 
             if (soldier.isPlayer) {
                 state.deaths++;
-                addKillFeed(`사망! 부활 대기 중...`, '#e74c3c');
                 state.isRespawning = true;
                 state.respawnTime = 5;
                 document.getElementById('respawnTimer').style.display = 'block';
-            } else {
-                addKillFeed(`${soldier.team === 'ally' ? '아군' : '적군'} 사망`, soldier.team === 'ally' ? '#e74c3c' : '#2ecc71');
             }
 
             updateTeamScoreUI();
             updateScoreUI();
         }
 
+        // ============ RESPAWN ============
         function respawnSoldier(soldier) {
+            if (!soldier) return;
             soldier.health = soldier.maxHealth;
             soldier.isDying = false;
             soldier.deathTime = 0;
+            soldier.mesh.visible = true;
             soldier.mesh.rotation.x = 0;
-            soldier.mesh.position.set(soldier.respawnX, 0, soldier.respawnZ);
-            soldier.shieldTime = 3; // 3초 무적
-
-            // Reset joints
+            soldier.mesh.position.set(soldier.respawnX + (Math.random() - 0.5) * 2, 0, soldier.respawnZ + (Math.random() - 0.5) * 2);
+            soldier.shieldTime = 3;
+            soldier.hurtUntil = 0;
+            soldier.coverPoint = null;
+            soldier.peeking = false;
+            soldier.crouchAmount = 0;
+            soldier.crouchTarget = 0;
+            soldier.target = null;
+            soldier.lastTargetSearch = 0;
+            soldier.burstLeft = 0;
+            soldier.nextShotTime = 0;
             Object.values(soldier.joints).forEach(j => j.rotation.set(0, 0, 0));
 
             if (soldier.isPlayer) {
                 state.health = state.maxHealth;
                 state.isRespawning = false;
-                state.shieldTime = 3;
                 document.getElementById('respawnTimer').style.display = 'none';
                 updateHealthUI();
                 camera.position.set(soldier.respawnX, player.height, soldier.respawnZ);
@@ -940,17 +1035,16 @@
         }
         function updateScoreUI() { document.getElementById('score').textContent = state.score; }
         function updateTeamScoreUI() {
-            const el = document.getElementById('teamScore');
-            el.innerHTML = `<span style="color:#3498db">아군 ${state.teamScore.ally}</span> : <span style="color:#e74c3c">${state.teamScore.enemy} 적군</span>`;
+            document.getElementById('allyScore').textContent = state.teamScore.ally;
+            document.getElementById('enemyScore').textContent = state.teamScore.enemy;
         }
-        function addKillFeed(msg, color = '#fff') {
+        function addKillFeed(html) {
             const feed = document.getElementById('killFeed');
             const div = document.createElement('div');
-            div.textContent = msg;
-            div.style.color = color;
+            div.innerHTML = html;
             feed.prepend(div);
             while (feed.children.length > 5) feed.removeChild(feed.lastChild);
-            setTimeout(() => { if (div.parentNode) div.parentNode.removeChild(div); }, 3000);
+            setTimeout(() => { if (div.parentNode) div.parentNode.removeChild(div); }, 4000);
         }
         function showDamage() {
             const overlay = document.getElementById('damageOverlay');
@@ -964,62 +1058,146 @@
             pos.x = Math.max(-half, Math.min(half, pos.x));
             pos.z = Math.max(-half, Math.min(half, pos.z));
 
-            // Building collision
             for (const b of buildings) {
-                const dx = pos.x - b.x;
-                const dz = pos.z - b.z;
+                const dx = pos.x - b.x, dz = pos.z - b.z;
                 if (Math.abs(dx) < b.w + radius && Math.abs(dz) < b.d + radius) {
-                    if (Math.abs(dx) > Math.abs(dz)) {
-                        pos.x = b.x + Math.sign(dx) * (b.w + radius);
-                    } else {
-                        pos.z = b.z + Math.sign(dz) * (b.d + radius);
-                    }
+                    if (Math.abs(dx) > Math.abs(dz)) pos.x = b.x + Math.sign(dx) * (b.w + radius);
+                    else pos.z = b.z + Math.sign(dz) * (b.d + radius);
+                }
+            }
+            // 엄폐물 충돌
+            for (const c of coverObjects) {
+                const dx = pos.x - c.x, dz = pos.z - c.z;
+                const d2 = dx * dx + dz * dz;
+                const minD = c.r + radius;
+                if (d2 < minD * minD && d2 > 0.0001) {
+                    const d = Math.sqrt(d2);
+                    pos.x = c.x + dx / d * minD;
+                    pos.z = c.z + dz / d * minD;
                 }
             }
         }
 
-        // ============ AI ============
+        // ============ AI (엄폐 + 스트레이프, 중앙 정지 버그 수정) ============
         function updateAI(soldier, delta) {
             if (soldier.isDying) return;
-
             const now = Date.now();
 
-            // Find target every 0.5s
+            // 타겟 탐색 (0.5초마다)
             if (now - soldier.lastTargetSearch > 500) {
                 soldier.lastTargetSearch = now;
-                const enemies = soldier.team === 'ally' ? state.enemies : state.allies;
-                let closest = null;
-                let closestDist = Infinity;
-                for (const e of enemies) {
+                const foes = soldier.team === 'ally' ? state.enemies : state.allies;
+                let closest = null, closestDist = Infinity;
+                for (const e of foes) {
                     if (e.isDying) continue;
-                    const dist = soldier.mesh.position.distanceTo(e.mesh.position);
-                    if (dist < closestDist) { closestDist = dist; closest = e; }
+                    const d = soldier.mesh.position.distanceTo(e.mesh.position);
+                    if (d < closestDist) { closestDist = d; closest = e; }
                 }
                 soldier.target = closest;
             }
 
-            if (!soldier.target || soldier.target.isDying) return;
+            const target = soldier.target;
+            soldier.crouchTarget = 0;
 
-            const toTarget = new THREE.Vector3().subVectors(soldier.target.mesh.position, soldier.mesh.position);
-            toTarget.y = 0;
-            const dist = toTarget.length();
-
-            // Move toward target if too far
-            if (dist > 8) {
-                toTarget.normalize();
-                soldier.mesh.position.add(toTarget.multiplyScalar(soldier.speed * delta));
-                checkCollision(soldier.mesh.position, 0.5);
-                soldier.isWalking = true;
-            } else {
+            if (!target || target.isDying) {
                 soldier.isWalking = false;
+                return;
             }
 
-            // Face target
-            soldier.mesh.lookAt(soldier.target.mesh.position.x, 0, soldier.target.mesh.position.z);
+            const myPos = soldier.mesh.position;
+            const toTarget = new THREE.Vector3().subVectors(target.mesh.position, myPos);
+            toTarget.y = 0;
+            const dist = toTarget.length();
+            toTarget.normalize();
 
-            // Shoot if in range and has line of sight
-            if (dist < 25) {
-                aiShoot(soldier, soldier.target);
+            soldier.mesh.lookAt(target.mesh.position.x, myPos.y, target.mesh.position.z);
+
+            // 시야(LOS) 150ms마다 갱신
+            if (now - soldier.lastLosCheck > 150) {
+                soldier.lastLosCheck = now;
+                const eye = myPos.clone(); eye.y += 1.4;
+                const chest = target.mesh.position.clone(); chest.y += 1.2;
+                soldier.hasLos = dist < 45 && hasLineOfSight(eye, chest);
+            }
+            const los = soldier.hasLos;
+
+            const hurt = now < soldier.hurtUntil;
+            if (!hurt) { soldier.coverPoint = null; soldier.peeking = false; }
+
+            const moveDir = new THREE.Vector3();
+            let moving = false;
+            const desiredRange = soldier.role === 'defender' ? 20 : 11;
+
+            if (hurt && soldier.coverPoint === null) {
+                soldier.coverPoint = findNearestCoverPoint(soldier, target.mesh.position);
+            }
+
+            if (hurt && soldier.coverPoint) {
+                const cp = soldier.coverPoint;
+                const dToCp = Math.hypot(myPos.x - cp.x, myPos.z - cp.z);
+                if (dToCp > 0.7) {
+                    moveDir.set(cp.x - myPos.x, 0, cp.z - myPos.z);
+                    if (moveDir.lengthSq() > 0.0001) { moveDir.normalize(); moving = true; }
+                } else if (!soldier.peeking) {
+                    soldier.crouchTarget = 1;
+                    if (now > soldier.peekTimer) {
+                        soldier.peeking = true;
+                        soldier.peekEnd = now + 900 + Math.random() * 700;
+                    }
+                } else {
+                    if (now > soldier.peekEnd) {
+                        soldier.peeking = false;
+                        soldier.peekTimer = now + 700 + Math.random() * 1300;
+                        soldier.hurtUntil = 0;
+                        soldier.coverPoint = null;
+                    }
+                }
+            } else if (los && dist <= 30) {
+                // 교전: 좌우 스트레이프 (멈추지 않음)
+                soldier.strafeTimer -= delta;
+                if (soldier.strafeTimer <= 0) {
+                    soldier.strafeTimer = 0.8 + Math.random() * 1.4;
+                    soldier.strafeDir = Math.random() < 0.5 ? -1 : 1;
+                }
+                moveDir.set(-toTarget.z, 0, toTarget.x).multiplyScalar(soldier.strafeDir);
+                if (dist < desiredRange * 0.5) moveDir.addScaledVector(toTarget, -1);
+                else if (dist > desiredRange) moveDir.addScaledVector(toTarget, 0.7);
+                if (moveDir.lengthSq() > 0.0001) { moveDir.normalize(); moving = true; }
+            } else {
+                // 시야 없음 or 멀음: 지그재그 전진
+                moveDir.copy(toTarget);
+                const zig = Math.sin(now * 0.002 + soldier.walkCycle) * 0.6;
+                moveDir.x += -toTarget.z * zig;
+                moveDir.z += toTarget.x * zig;
+                moveDir.normalize();
+                moving = true;
+            }
+
+            if (moving) {
+                const spd = soldier.speed * (hurt ? 1.4 : 1);
+                myPos.addScaledVector(moveDir, spd * delta);
+                checkCollision(myPos, 0.5);
+                // 병사 간 겹침 방지
+                for (const list of [state.allies, state.enemies]) {
+                    for (const other of list) {
+                        if (other === soldier || other.isDying) continue;
+                        const dx = myPos.x - other.mesh.position.x;
+                        const dz = myPos.z - other.mesh.position.z;
+                        const d2 = dx * dx + dz * dz;
+                        if (d2 < 1.44 && d2 > 0.0001) {
+                            const d = Math.sqrt(d2);
+                            const push = (1.2 - d) / d * 2 * delta;
+                            myPos.x += dx * push; myPos.z += dz * push;
+                        }
+                    }
+                }
+            }
+            soldier.isWalking = moving;
+            soldier.crouchAmount += ((soldier.crouchTarget || 0) - soldier.crouchAmount) * Math.min(1, delta * 6);
+
+            if (los && dist < 32 && (!soldier.coverPoint || soldier.peeking)) {
+                if (!soldier.nextShotTime) soldier.nextShotTime = 0;
+                aiShoot(soldier, target);
             }
         }
 
@@ -1036,6 +1214,11 @@
                 soldier.joints.leftHip.rotation.x = ease * 0.3;
                 soldier.joints.rightHip.rotation.x = -ease * 0.2;
                 if (t >= 1) {
+                    if (soldier.isPlayer) {
+                        // 플레이어는 객체 유지, 메쉬만 숨김 (respawn 크래시 방지)
+                        soldier.mesh.visible = false;
+                        return;
+                    }
                     scene.remove(soldier.mesh);
                     if (soldier.team === 'ally') {
                         const idx = state.allies.indexOf(soldier);
@@ -1044,19 +1227,19 @@
                         const idx = state.enemies.indexOf(soldier);
                         if (idx !== -1) state.enemies.splice(idx, 1);
                     }
-                    // Respawn after delay
                     setTimeout(() => {
                         if (state.gameStarted && !state.gameOver) {
-                            const newSoldier = createSoldier(soldier.respawnX, soldier.respawnZ, soldier.team);
-                            if (soldier.team === 'ally') state.allies.push(newSoldier);
-                            else state.enemies.push(newSoldier);
+                            const ns = createSoldier(soldier.respawnX, soldier.respawnZ, soldier.team, soldier.name);
+                            ns.shieldTime = 3;
+                            if (soldier.team === 'ally') state.allies.push(ns);
+                            else state.enemies.push(ns);
                         }
                     }, 5000);
                 }
                 return;
             }
 
-            // Shield visual
+            // 무적 보호막
             if (soldier.shieldTime > 0) {
                 soldier.shield.material.opacity = 0.3 + Math.sin(Date.now() * 0.01) * 0.1;
             } else {
@@ -1085,6 +1268,16 @@
                 soldier.joints.rightShoulder.rotation.x *= (1 - lerp);
                 soldier.mesh.position.y *= (1 - lerp);
             }
+
+            // 웅크림(엄폐) 자세
+            if (soldier.crouchAmount > 0.01) {
+                const c = soldier.crouchAmount;
+                soldier.joints.leftHip.rotation.x = c * 1.0;
+                soldier.joints.rightHip.rotation.x = c * 1.0;
+                soldier.joints.leftKnee.rotation.x = -c * 1.2;
+                soldier.joints.rightKnee.rotation.x = -c * 1.2;
+                soldier.mesh.position.y = -c * 0.45;
+            }
         }
 
         // ============ GAME LOOP ============
@@ -1099,7 +1292,13 @@
                 return;
             }
 
-            // --- Player Movement ---
+            // --- 플레이어 위치 동기화 (적 AI가 정확히 조준하도록) ---
+            const ps = state.playerSoldier;
+            if (ps && !ps.isDying) {
+                ps.mesh.position.set(camera.position.x, 0, camera.position.z);
+            }
+
+            // --- 플레이어 이동 ---
             if (!state.isRespawning) {
                 const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
                 const speed = sprint ? player.sprintSpeed : player.speed;
@@ -1127,100 +1326,84 @@
                 if (state.mouseDown && WEAPONS[state.currentWeapon].auto) shoot();
             }
 
-            // --- Shield timer ---
-            if (state.shieldTime > 0) {
-                state.shieldTime -= delta;
-                document.getElementById('shieldOverlay').style.opacity = '1';
-            } else {
-                document.getElementById('shieldOverlay').style.opacity = '0';
-            }
-
-            // --- Respawn timer ---
-            if (state.isRespawning) {
+            // --- 부활 타이머 ---
+            if (state.isRespawning && state.respawnTime > 0) {
                 state.respawnTime -= delta;
-                document.getElementById('respawnTimer').textContent = `부활: ${Math.ceil(state.respawnTime)}초`;
                 if (state.respawnTime <= 0) {
-                    respawnSoldier(state.allies.find(s => s.isPlayer));
+                    state.respawnTime = 0;
+                    respawnSoldier(state.playerSoldier);
+                } else {
+                    document.getElementById('respawnTimer').textContent = `부활: ${Math.ceil(state.respawnTime)}초`;
                 }
             }
 
-            // --- AI Allies ---
+            // --- AI 아군 ---
             for (let i = state.allies.length - 1; i >= 0; i--) {
                 const ally = state.allies[i];
-                if (!ally.isPlayer) {
-                    updateAI(ally, delta);
-                }
+                if (!ally.isPlayer) updateAI(ally, delta);
                 animateSoldier(ally, delta);
             }
 
-            // --- AI Enemies ---
+            // --- AI 적군 ---
             for (let i = state.enemies.length - 1; i >= 0; i--) {
                 const enemy = state.enemies[i];
                 updateAI(enemy, delta);
                 animateSoldier(enemy, delta);
             }
 
-            // --- Bullets ---
+            // --- 총알 ---
             for (let i = state.bullets.length - 1; i >= 0; i--) {
                 const bullet = state.bullets[i];
                 bullet.velocity.y += bullet.gravity * delta;
-                bullet.mesh.position.add(bullet.velocity.clone().multiplyScalar(delta));
                 bullet.life -= delta;
+                bullet.mesh.position.addScaledVector(bullet.velocity, delta);
 
                 if (bullet.mesh.position.y <= 0) {
-                    createParticles(bullet.mesh.position.clone(), 0x8b7355, 3);
+                    createParticles(bullet.mesh.position.clone(), 0x9a8f7a, 3);
                     scene.remove(bullet.mesh);
                     state.bullets.splice(i, 1);
                     continue;
                 }
 
                 let hit = false;
+                const p = bullet.mesh.position;
 
-                // Check hit on enemies (player bullets)
-                if (bullet.owner === 'player' || (bullet.owner && bullet.owner.team === 'ally')) {
-                    for (const enemy of state.enemies) {
-                        if (enemy.isDying) continue;
-                        // Head hit check
-                        const headPos = enemy.mesh.position.clone();
-                        headPos.y += 1.65;
-                        const bodyPos = enemy.mesh.position.clone();
-                        bodyPos.y += 1.1;
-
-                        const weapon = WEAPONS[state.currentWeapon];
-                        const isAI = bullet.owner && bullet.owner !== 'player';
-                        const dmgBody = isAI ? 10 : weapon.damageBody;
-                        const dmgHead = isAI ? 20 : weapon.damageHead;
-
-                        if (bullet.mesh.position.distanceTo(headPos) < 0.3) {
-                            damageSoldier(enemy, dmgHead, true, bullet.owner);
+                // 건물에 부딪힘
+                if (!hit) {
+                    for (const b of buildings) {
+                        if (Math.abs(p.x - b.x) < b.w && Math.abs(p.z - b.z) < b.d && p.y < b.h) {
+                            createParticles(p.clone(), 0x999999, 3);
                             hit = true;
                             break;
-                        } else if (bullet.mesh.position.distanceTo(bodyPos) < 0.6) {
-                            damageSoldier(enemy, dmgBody, false, bullet.owner);
+                        }
+                    }
+                }
+                // 엄폐물에 부딪힘
+                if (!hit) {
+                    for (const c of coverObjects) {
+                        const dx = p.x - c.x, dz = p.z - c.z;
+                        if (p.y < c.h && dx * dx + dz * dz < c.r * c.r) {
+                            createParticles(p.clone(), 0xbbb5a8, 3);
                             hit = true;
                             break;
                         }
                     }
                 }
 
-                // Check hit on allies (enemy bullets)
-                if (!hit && bullet.owner && bullet.owner.team === 'enemy') {
-                    for (const ally of state.allies) {
-                        if (ally.isDying) continue;
-                        const headPos = ally.mesh.position.clone();
-                        headPos.y += 1.65;
-                        const bodyPos = ally.mesh.position.clone();
-                        bodyPos.y += 1.1;
-
-                        if (bullet.mesh.position.distanceTo(headPos) < 0.3) {
-                            damageSoldier(ally, 20, true, bullet.owner);
-                            hit = true;
-                            break;
-                        } else if (bullet.mesh.position.distanceTo(bodyPos) < 0.6) {
-                            damageSoldier(ally, 10, false, bullet.owner);
-                            hit = true;
-                            break;
-                        }
+                // 병사 명중
+                if (!hit) {
+                    const ownerTeam = bullet.owner === 'player' ? 'ally' : (bullet.owner && bullet.owner.team);
+                    const targets = ownerTeam === 'ally' ? state.enemies : state.allies;
+                    for (const t of targets) {
+                        if (t.isDying) continue;
+                        const c2 = t.crouchAmount > 0.5 ? 0.45 : 0;
+                        const base = t.mesh.position;
+                        const headY = base.y + 1.65 - c2;
+                        const bodyY = base.y + 1.1 - c2;
+                        const dH = p.x - base.x, dV = p.y - headY, dD = p.z - base.z;
+                        if (dH * dH + dV * dV + dD * dD < 0.09) { damageSoldier(t, bullet.dmgHead, true, bullet.owner); hit = true; break; }
+                        const dH2 = p.x - base.x, dV2 = p.y - bodyY, dD2 = p.z - base.z;
+                        if (dH2 * dH2 + dV2 * dV2 + dD2 * dD2 < 0.36) { damageSoldier(t, bullet.dmgBody, false, bullet.owner); hit = true; break; }
                     }
                 }
 
@@ -1230,10 +1413,10 @@
                 }
             }
 
-            // --- Particles ---
+            // --- 파티클 ---
             for (let i = state.particles.length - 1; i >= 0; i--) {
                 const p = state.particles[i];
-                p.mesh.position.add(p.velocity.clone().multiplyScalar(delta));
+                p.mesh.position.addScaledVector(p.velocity, delta);
                 if (p.isCasing) {
                     p.velocity.y -= 20 * delta;
                     p.mesh.rotation.x += p.angularVel.x * delta;
@@ -1277,37 +1460,46 @@
             mmCtx.fillStyle = 'rgba(30,30,30,0.8)';
             mmCtx.fillRect(0, 0, 150, 150);
             const scale = 150 / (ARENA_SIZE * 2);
-            const px = camera.position.x * scale + 75;
-            const pz = camera.position.z * scale + 75;
 
-            // Player
-            mmCtx.fillStyle = '#3498db';
-            mmCtx.beginPath();
-            mmCtx.arc(px, pz, 4, 0, Math.PI * 2);
-            mmCtx.fill();
-            mmCtx.strokeStyle = '#3498db';
-            mmCtx.lineWidth = 2;
-            mmCtx.beginPath();
-            mmCtx.moveTo(px, pz);
-            mmCtx.lineTo(px - Math.sin(yaw) * 12, pz - Math.cos(yaw) * 12);
-            mmCtx.stroke();
-
-            // Allies
-            mmCtx.fillStyle = '#3498db';
-            for (const ally of state.allies) {
-                if (ally.isPlayer || ally.isDying) continue;
+            // 건물
+            mmCtx.fillStyle = 'rgba(160,150,135,0.65)';
+            for (const b of buildings) {
+                const size = b.w * 2 * scale;
+                mmCtx.fillRect(b.x * scale + 75 - size / 2, b.z * scale + 75 - size / 2, size, size);
+            }
+            // 엄폐물
+            mmCtx.fillStyle = 'rgba(200,180,140,0.7)';
+            for (const c of coverObjects) {
+                const r = c.r * 2 * scale;
                 mmCtx.beginPath();
-                mmCtx.arc(ally.mesh.position.x * scale + 75, ally.mesh.position.z * scale + 75, 3, 0, Math.PI * 2);
+                mmCtx.arc(c.x * scale + 75, c.z * scale + 75, r, 0, Math.PI * 2);
                 mmCtx.fill();
             }
 
-            // Enemies
-            mmCtx.fillStyle = '#e74c3c';
+            // 아군
+            mmCtx.fillStyle = '#5fc9ff';
+            for (const ally of state.allies) {
+                if (ally.isDying) continue;
+                const x = ally.mesh.position.x * scale + 75;
+                const z = ally.mesh.position.z * scale + 75;
+                if (ally.isPlayer) {
+                    mmCtx.beginPath(); mmCtx.arc(x, z, 4, 0, Math.PI * 2); mmCtx.fill();
+                    mmCtx.strokeStyle = '#5fc9ff'; mmCtx.lineWidth = 2;
+                    mmCtx.beginPath(); mmCtx.moveTo(x, z);
+                    mmCtx.lineTo(x - Math.sin(yaw) * 12, z - Math.cos(yaw) * 12);
+                    mmCtx.stroke();
+                } else {
+                    mmCtx.beginPath(); mmCtx.arc(x, z, 3, 0, Math.PI * 2); mmCtx.fill();
+                }
+            }
+
+            // 적군
+            mmCtx.fillStyle = '#ff6b5e';
             for (const enemy of state.enemies) {
                 if (enemy.isDying) continue;
-                mmCtx.beginPath();
-                mmCtx.arc(enemy.mesh.position.x * scale + 75, enemy.mesh.position.z * scale + 75, 3, 0, Math.PI * 2);
-                mmCtx.fill();
+                const x = enemy.mesh.position.x * scale + 75;
+                const z = enemy.mesh.position.z * scale + 75;
+                mmCtx.beginPath(); mmCtx.arc(x, z, 3, 0, Math.PI * 2); mmCtx.fill();
             }
 
             mmCtx.restore();
@@ -1326,9 +1518,9 @@
             state.ammo = { rifle: 30, pistol: 12 };
             state.currentWeapon = 'rifle';
             state.isRespawning = false;
-            state.shieldTime = 3;
+            state.respawnTime = 0;
+            state.playerSoldier = null;
 
-            // Clear old soldiers
             for (const s of state.allies) scene.remove(s.mesh);
             for (const s of state.enemies) scene.remove(s.mesh);
             for (const b of state.bullets) scene.remove(b.mesh);
@@ -1338,24 +1530,26 @@
             state.bullets = [];
             state.particles = [];
 
-            // Spawn allies (player + 4 AI) - left side
+            // 아군 스폰 (왼쪽)
             const allySpawns = [[-25, -5], [-25, 5], [-30, -10], [-30, 10], [-20, 0]];
             allySpawns.forEach(([x, z], i) => {
-                const ally = createSoldier(x, z, 'ally');
+                const ally = createSoldier(x, z, 'ally', ALLY_NAMES[i]);
                 if (i === 0) {
                     ally.isPlayer = true;
+                    if (ally.nametag) ally.nametag.visible = false;
+                    state.playerSoldier = ally;
                     camera.position.set(x, player.height, z);
+                    yaw = 0; pitch = 0;
                 }
                 state.allies.push(ally);
             });
 
-            // Spawn enemies - right side
+            // 적군 스폰 (오른쪽)
             const enemySpawns = [[25, -5], [25, 5], [30, -10], [30, 10], [20, 0]];
-            enemySpawns.forEach(([x, z]) => {
-                state.enemies.push(createSoldier(x, z, 'enemy'));
+            enemySpawns.forEach(([x, z], i) => {
+                state.enemies.push(createSoldier(x, z, 'enemy', ENEMY_NAMES[i]));
             });
 
-            yaw = 0; pitch = 0;
             rifleGroup.visible = true;
             pistolGroup.visible = false;
 
@@ -1370,7 +1564,7 @@
             document.getElementById('weaponSelectScreen').style.display = 'none';
 
             renderer.domElement.requestPointerLock();
-            addKillFeed('전투 시작!', '#f39c12');
+            addKillFeed('<span style="color:#f39c12;font-weight:bold">전투 시작!</span>');
         }
 
         function endGame() {
