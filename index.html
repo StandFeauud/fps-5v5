@@ -1297,6 +1297,10 @@
             if (ps && !ps.isDying) {
                 ps.mesh.position.set(camera.position.x, 0, camera.position.z);
             }
+            // --- 무적 보호막 타이머 (매 프레임 감소 - 없으면 3초 무적이 영구 지속됨) ---
+            for (const s of state.allies) if (s.shieldTime > 0) s.shieldTime = Math.max(0, s.shieldTime - delta);
+            for (const s of state.enemies) if (s.shieldTime > 0) s.shieldTime = Math.max(0, s.shieldTime - delta);
+            document.getElementById('shieldOverlay').style.opacity = (ps && ps.shieldTime > 0) ? '1' : '0';
 
             // --- 플레이어 이동 ---
             if (!state.isRespawning) {
