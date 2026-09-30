@@ -719,7 +719,7 @@
                 walkCycle: Math.random() * Math.PI * 2,
                 isWalking: false,
                 isDying: false, deathTime: 0,
-                shieldTime: 0,
+                shieldTime: 0, shieldStartTime: 0,
                 hasLos: false, lastLosCheck: 0,
                 target: null, lastTargetSearch: 0,
                 respawnX: x, respawnZ: z,
@@ -964,6 +964,8 @@
             soldier.crouchAmount = 0;
             soldier.coverPoint = null;
             soldier.peeking = false;
+            soldier.shieldTime = 0;       // [FIX] 죽은 soldier는 무적 해제
+            soldier.shieldStartTime = 0;  // [FIX] 타임스탬프도 리셋
             createParticles(soldier.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)), 0xe74c3c, 20);
 
             const killerName = attacker === 'player' ? 'YOU' : (attacker && attacker.name) || '???';
@@ -1003,6 +1005,7 @@
             soldier.mesh.rotation.x = 0;
             soldier.mesh.position.set(soldier.respawnX + (Math.random() - 0.5) * 2, 0, soldier.respawnZ + (Math.random() - 0.5) * 2);
             soldier.shieldTime = 3;
+            soldier.shieldStartTime = Date.now();
             soldier.hurtUntil = 0;
             soldier.coverPoint = null;
             soldier.peeking = false;
@@ -1203,6 +1206,17 @@
 
         // ============ SOLDIER ANIMATION ============
         function animateSoldier(soldier, delta) {
+            // [FIX] shieldTime 매 프레임 감소 - animate의 for-of 루프는 배열 mutation 시 불안정하므로 여기서 직접 처리
+            // 모든 병사(아군/적군/플레이어)에게 animateSoldier가 매 프레임 호출되므로 가장 확실한 위치
+            if (soldier.shieldTime > 0) {
+                soldier.shieldTime = Math.max(0, soldier.shieldTime - delta);
+            }
+            // 타임스탬프 기반 안전장치: 3초 경과 시 무조건 0으로
+            if (soldier.shieldStartTime && Date.now() - soldier.shieldStartTime > 3000) {
+                soldier.shieldTime = 0;
+                soldier.shieldStartTime = 0;
+            }
+
             if (soldier.isDying) {
                 soldier.deathTime += delta;
                 const t = Math.min(soldier.deathTime / 1.5, 1);
@@ -1231,6 +1245,7 @@
                         if (state.gameStarted && !state.gameOver) {
                             const ns = createSoldier(soldier.respawnX, soldier.respawnZ, soldier.team, soldier.name);
                             ns.shieldTime = 3;
+                            ns.shieldStartTime = Date.now();
                             if (soldier.team === 'ally') state.allies.push(ns);
                             else state.enemies.push(ns);
                         }
